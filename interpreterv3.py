@@ -137,7 +137,7 @@ class Interpreter(InterpreterBase):
 
   # create a new environment for a function call
   def _create_new_environment(self, funcname, args):
-    formal_params = self.func_manager.get_function_info(funcname)    
+    formal_params = self.func_manager.get_function_info(funcname)   
     if formal_params is None:
         super().error(ErrorType.NAME_ERROR, f"Unknown function name {funcname}", self.ip)
     captures = formal_params.captures
@@ -165,6 +165,13 @@ class Interpreter(InterpreterBase):
         value = value_type[1]
         #print(f"{varname} -- > {value}")
         tmp_mappings[varname] = copy.deepcopy(value)
+
+    # If object method, pass object into "this"
+    if "." in funcname: 
+        object = funcname.split(".")[0]
+        arg = self.env_manager.get(object)
+        tmp_mappings["this"] = arg
+        
     
     # create a new environment for the target function
     # and add our parameters to the env
@@ -497,6 +504,8 @@ class Interpreter(InterpreterBase):
   # given a variable name and a Value object, associate the name with the value
   def _set_value(self, varname, to_value_type):
     value_type = self.env_manager.get(varname)
+    if to_value_type.type() == Type.FUNC:
+      self.func_manager.create_function(varname, to_value_type.value())
     if "." in varname:
       object = varname.split(".")[0]
       variable = varname.split(".")[1]
@@ -504,8 +513,6 @@ class Interpreter(InterpreterBase):
       object_dict = self.env_manager.get(object).value()
       object_dict[variable] = to_value_type
       to_value_type = Value(Type.OBJECT, object_dict)
-    if self._get_value(varname).type() == Type.FUNC:
-      self.func_manager.create_function(varname, to_value_type.value())
     if value_type == None:
       super().error(ErrorType.NAME_ERROR,f"Assignment of unknown variable {varname}", self.ip)
     value_type.set(to_value_type)
