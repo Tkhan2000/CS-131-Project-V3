@@ -143,7 +143,7 @@ class Interpreter(InterpreterBase):
         super().error(ErrorType.NAME_ERROR, f"Unknown function name {funcname}", self.ip)
     if formal_params.start_ip < 0:
         super().error(ErrorType.NAME_ERROR, f"Undefined function {funcname}", self.ip)
-    line_num = self._find_first_instruction(funcname) - 1
+    line_num = self._find_first_instruction(funcname) - 1 # Line number of potential lambda
     captures = self.func_manager.capture_list[line_num].pop() if self.func_manager.capture_list[line_num] else []
     
 
@@ -183,7 +183,6 @@ class Interpreter(InterpreterBase):
     # and add our parameters to the env
     self.env_manager.push()
     self.env_manager.import_mappings(tmp_mappings)
-    #print(self.env_manager.environment[-1])
 
   def _endfunc(self, return_val = None):
     if not self.return_stack:  # done with main!
@@ -248,17 +247,17 @@ class Interpreter(InterpreterBase):
     if default_value_type.type() == Type.VOID:
       if args:
         super().error(ErrorType.TYPE_ERROR,"Returning value from void function", self.ip)
-      self._lambda_or_func()  # no return
+      self._endfunc()  # no return
       return
     if not args:
-      self._lambda_or_func()  # return default value
+      self._endfunc()  # return default value
       return
 
     #otherwise evaluate the expression and return its value
     value_type = self._eval_expression(args)
     if value_type.type() != default_value_type.type():
       super().error(ErrorType.TYPE_ERROR,"Non-matching return type", self.ip)
-    self._lambda_or_func(value_type)
+    self._endfunc(value_type)
 
   def _while(self, args):
     if not args:
@@ -301,22 +300,7 @@ class Interpreter(InterpreterBase):
         break # syntax error!
       cur_line -= 1
     # didn't find while
-    super().error(ErrorType.SYNTAX_ERROR,"Missing while", self.ip)
-
-  # This function determines if a return statement is bound to a function or lambda
-  # then calls endfunc or endlamba
-  def _lambda_or_func(self, return_val = None):
-    cur_line = self.ip + 1
-    length = len(self.tokenized_program)
-    while cur_line < length:
-        if self.tokenized_program[cur_line][0] == InterpreterBase.ENDFUNC_DEF:
-            self._endfunc(return_val)
-            return
-        if self.tokenized_program[cur_line][0] == InterpreterBase.ENDLAMBDA_DEF:
-            self._endlambda(return_val)
-            return
-        cur_line += 1
-    assert(False)        
+    super().error(ErrorType.SYNTAX_ERROR,"Missing while", self.ip)     
   
   def _lambda(self, args):
     # format:  lambda param1:type1 param2:type2 … return_type
@@ -332,17 +316,8 @@ class Interpreter(InterpreterBase):
     self._set_result(value_type) # Set resultf to Value object
     self._exit_lambda()
   
-  def _endlambda(self, return_val = None):
-    self.env_manager.pop()  # get rid of environment for the function
-    if return_val:
-        self._set_result(return_val)
-    else:
-        # return default value for type if no return value is specified. Last param of True enables
-        # creation of result variable even if none exists, or is of a different type
-        return_type = self.func_manager.get_return_type_for_enclosing_function(self.ip)
-        if return_type != InterpreterBase.VOID_DEF:
-          self._set_result(self.type_to_default[return_type])    
-    self.ip = self.return_stack.pop()
+  def _endlambda(self):
+    self._endfunc() # Behaves identically to endfunc() with no return value
 
   def _exit_lambda(self):
     lambda_indent = self.indents[self.ip]
@@ -509,12 +484,9 @@ class Interpreter(InterpreterBase):
   # given a variable name and a Value object, associate the name with the value
   def _set_value(self, varname, to_value_type):
     value_type = self.env_manager.get(varname)
-    if to_value_type.type() == Type.FUNC:
-      func_info = to_value_type.value()
-      func_info = FuncInfo(func_info.params, func_info.start_ip)
-      to_value_type = Value(Type.FUNC, func_info) # Reset captures
+    if to_value_type.type() == Type.FUNC: # If function variable, create new function with varname
       self.func_manager.create_function(varname, to_value_type.value())
-    if "." in varname:
+    if "." in varname: # If object, add value to dictionary and change to_value_type to object value
       object = varname.split(".")[0]
       variable = varname.split(".")[1]
       value_type = self.env_manager.get(object)
