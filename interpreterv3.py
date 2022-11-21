@@ -133,8 +133,8 @@ class Interpreter(InterpreterBase):
       self._advance_to_next_statement()
     else:
       self.return_stack.append(self.ip+1)
-      self.ip = self._find_first_instruction(args[0])
       self._create_new_environment(args[0], args[1:])  # Create new environment, copy args into new env
+      self.ip = self._find_first_instruction(args[0])
       
 
   # create a new environment for a function call
