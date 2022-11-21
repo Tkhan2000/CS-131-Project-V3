@@ -33,7 +33,6 @@ class Value:
   def __str__(self):
     return f"{self.t}:{self.v}"
 
-  __repr__ = __str__  
 
 # Main interpreter class
 class Interpreter(InterpreterBase):
@@ -132,20 +131,15 @@ class Interpreter(InterpreterBase):
       self._advance_to_next_statement()
     else:
       self.return_stack.append(self.ip+1)
-      self.ip = self._find_first_instruction(args[0])
       self._create_new_environment(args[0], args[1:])  # Create new environment, copy args into new env
-      
+      self.ip = self._find_first_instruction(args[0])
 
   # create a new environment for a function call
   def _create_new_environment(self, funcname, args):
     formal_params = self.func_manager.get_function_info(funcname)   
     if formal_params is None:
         super().error(ErrorType.NAME_ERROR, f"Unknown function name {funcname}", self.ip)
-    if formal_params.start_ip < 0:
-        super().error(ErrorType.NAME_ERROR, f"Undefined function {funcname}", self.ip)
-    line_num = self._find_first_instruction(funcname) - 1 # Line number of potential lambda
-    captures = self.func_manager.capture_list[line_num].pop() if self.func_manager.capture_list[line_num] else []
-    
+    captures = formal_params.captures
 
     if len(formal_params.params) != len(args):
       super().error(ErrorType.NAME_ERROR,f"Mismatched parameter count in call to {funcname}", self.ip)
@@ -168,8 +162,7 @@ class Interpreter(InterpreterBase):
     for value_type in captures:
         varname = value_type[0]
         value = value_type[1]
-        if value.type() == Type.FUNC:
-            self.func_manager.create_function(varname, value.value())
+        #print(f"{varname} -- > {value}")
         tmp_mappings[varname] = copy.deepcopy(value)
 
     # If object method, pass object into "this"
@@ -247,17 +240,17 @@ class Interpreter(InterpreterBase):
     if default_value_type.type() == Type.VOID:
       if args:
         super().error(ErrorType.TYPE_ERROR,"Returning value from void function", self.ip)
-      self._endfunc()  # no return
+      self._lambda_or_func()  # no return
       return
     if not args:
-      self._endfunc()  # return default value
+      self._lambda_or_func()  # return default value
       return
 
     #otherwise evaluate the expression and return its value
     value_type = self._eval_expression(args)
     if value_type.type() != default_value_type.type():
       super().error(ErrorType.TYPE_ERROR,"Non-matching return type", self.ip)
-    self._endfunc(value_type)
+    self._lambda_or_func(value_type)
 
   def _while(self, args):
     if not args:
@@ -300,7 +293,22 @@ class Interpreter(InterpreterBase):
         break # syntax error!
       cur_line -= 1
     # didn't find while
-    super().error(ErrorType.SYNTAX_ERROR,"Missing while", self.ip)     
+    super().error(ErrorType.SYNTAX_ERROR,"Missing while", self.ip)
+
+  # This function determines if a return statement is bound to a function or lambda
+  # then calls endfunc or endlamba
+  def _lambda_or_func(self, return_val = None):
+    cur_line = self.ip + 1
+    length = len(self.tokenized_program)
+    while cur_line < length:
+        if self.tokenized_program[cur_line][0] == InterpreterBase.ENDFUNC_DEF:
+            self._endfunc(return_val)
+            return
+        if self.tokenized_program[cur_line][0] == InterpreterBase.ENDLAMBDA_DEF:
+            self._endlambda(return_val)
+            return
+        cur_line += 1
+    assert(False)        
   
   def _lambda(self, args):
     # format:  lambda param1:type1 param2:type2 … return_type
@@ -310,14 +318,24 @@ class Interpreter(InterpreterBase):
         if environment.items():
             captures += [(k, v) for k, v in environment.items()]
     
+    #print(f"{captures[0][0]};{captures[0][1]}")
     self.func_manager.set_lambda(args, self.ip, captures) # Sets resultf in function manager to current lambda
     func_info = self.func_manager.get_function_info("resultf")
     value_type = Value(Type.FUNC, func_info)
     self._set_result(value_type) # Set resultf to Value object
     self._exit_lambda()
   
-  def _endlambda(self):
-    self._endfunc() # Behaves identically to endfunc() with no return value
+  def _endlambda(self, return_val = None):
+    self.env_manager.pop()  # get rid of environment for the function
+    if return_val:
+        self._set_result(return_val)
+    else:
+        # return default value for type if no return value is specified. Last param of True enables
+        # creation of result variable even if none exists, or is of a different type
+        return_type = self.func_manager.get_return_type_for_enclosing_function(self.ip)
+        if return_type != InterpreterBase.VOID_DEF:
+          self._set_result(self.type_to_default[return_type])    
+    self.ip = self.return_stack.pop()
 
   def _exit_lambda(self):
     lambda_indent = self.indents[self.ip]
@@ -336,8 +354,6 @@ class Interpreter(InterpreterBase):
     if len(args) < 2:
       super().error(ErrorType.SYNTAX_ERROR,"Invalid var definition syntax", self.ip)
     for var_name in args[1:]:
-      if "." in var_name:
-        super().error(ErrorType.SYNTAX_ERROR,f"Cannot define object variable {args[1]}", self.ip)
       if self.env_manager.create_new_symbol(var_name) != SymbolResult.OK:
         super().error(ErrorType.NAME_ERROR,f"Redefinition of variable {args[1]}", self.ip)
       # is the type a valid type?
@@ -346,6 +362,7 @@ class Interpreter(InterpreterBase):
       # Create the variable with a copy of the default value for the type
       self.env_manager.set(var_name, copy.deepcopy(self.type_to_default[args[0]]))
 
+    #print(self.env_manager.environment)
     self._advance_to_next_statement()
 
   def _print(self, args):
@@ -470,6 +487,7 @@ class Interpreter(InterpreterBase):
       if object_dict is None:
         super().error(ErrorType.TYPE_ERROR,f"Variable not of type Object: {token}", self.ip)
       if variable in object_dict:
+        #print(object_dict[variable])
         return object_dict[variable]
       super().error(ErrorType.NAME_ERROR,f"Object variable does not exist: {token}", self.ip)
     
@@ -486,9 +504,9 @@ class Interpreter(InterpreterBase):
   # given a variable name and a Value object, associate the name with the value
   def _set_value(self, varname, to_value_type):
     value_type = self.env_manager.get(varname)
-    if to_value_type.type() == Type.FUNC: # If function variable, create new function with varname
+    if to_value_type.type() == Type.FUNC:
       self.func_manager.create_function(varname, to_value_type.value())
-    if "." in varname: # If object, add value to dictionary and change to_value_type to object value
+    if "." in varname:
       object = varname.split(".")[0]
       variable = varname.split(".")[1]
       value_type = self.env_manager.get(object)

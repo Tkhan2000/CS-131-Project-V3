@@ -1,9 +1,10 @@
 from intbase import InterpreterBase
 
 class FuncInfo:
-  def __init__(self, params, start_ip):
+  def __init__(self, params, start_ip, captures = []):
     self.params = params  # format is [[varname1,typename1],[varname2,typename2],...]
     self.start_ip = start_ip    # line number, zero-based
+    self.captures = captures
 
   def __str__(self):
     return f"{self.params}::{self.start_ip}"
@@ -43,7 +44,7 @@ class FunctionManager:
     # args format: param1:type1 param2:type2 … return_type
     func_name = "resultf"
     params = [self._to_tuple(formal) for formal in args[0:-1]]
-    func_info = FuncInfo(params, line_num + 1)
+    func_info = FuncInfo(params, line_num + 1, captures)
     self.func_cache[func_name] = func_info
     self.capture_list[line_num].insert(0, captures)
   
