@@ -33,6 +33,7 @@ class Value:
   def __str__(self):
     return f"{self.t}:{self.v}"
 
+  __repr__ = __str__  
 
 # Main interpreter class
 class Interpreter(InterpreterBase):
@@ -132,15 +133,18 @@ class Interpreter(InterpreterBase):
       self._advance_to_next_statement()
     else:
       self.return_stack.append(self.ip+1)
-      self._create_new_environment(args[0], args[1:])  # Create new environment, copy args into new env
       self.ip = self._find_first_instruction(args[0])
+      self._create_new_environment(args[0], args[1:])  # Create new environment, copy args into new env
+      
 
   # create a new environment for a function call
   def _create_new_environment(self, funcname, args):
     formal_params = self.func_manager.get_function_info(funcname)   
     if formal_params is None:
         super().error(ErrorType.NAME_ERROR, f"Unknown function name {funcname}", self.ip)
-    captures = formal_params.captures
+    line_num = self._find_first_instruction(funcname) - 1
+    captures = self.func_manager.capture_list[line_num].pop() if self.func_manager.capture_list[line_num] else []
+    
 
     if len(formal_params.params) != len(args):
       super().error(ErrorType.NAME_ERROR,f"Mismatched parameter count in call to {funcname}", self.ip)
@@ -163,7 +167,8 @@ class Interpreter(InterpreterBase):
     for value_type in captures:
         varname = value_type[0]
         value = value_type[1]
-        #print(f"{varname} -- > {value}")
+        if value.type() == Type.FUNC:
+            self.func_manager.create_function(varname, value.value())
         tmp_mappings[varname] = copy.deepcopy(value)
 
     # If object method, pass object into "this"
@@ -320,7 +325,6 @@ class Interpreter(InterpreterBase):
         if environment.items():
             captures += [(k, v) for k, v in environment.items()]
     
-    #print(f"{captures[0][0]};{captures[0][1]}")
     self.func_manager.set_lambda(args, self.ip, captures) # Sets resultf in function manager to current lambda
     func_info = self.func_manager.get_function_info("resultf")
     value_type = Value(Type.FUNC, func_info)
@@ -364,7 +368,6 @@ class Interpreter(InterpreterBase):
       # Create the variable with a copy of the default value for the type
       self.env_manager.set(var_name, copy.deepcopy(self.type_to_default[args[0]]))
 
-    #print(self.env_manager.environment)
     self._advance_to_next_statement()
 
   def _print(self, args):
@@ -487,7 +490,6 @@ class Interpreter(InterpreterBase):
       if object_dict is None:
         super().error(ErrorType.TYPE_ERROR,f"Variable not of type Object: {token}", self.ip)
       if variable in object_dict:
-        #print(object_dict[variable])
         return object_dict[variable]
       super().error(ErrorType.NAME_ERROR,f"Object variable does not exist: {token}", self.ip)
     
@@ -505,6 +507,9 @@ class Interpreter(InterpreterBase):
   def _set_value(self, varname, to_value_type):
     value_type = self.env_manager.get(varname)
     if to_value_type.type() == Type.FUNC:
+      func_info = to_value_type.value()
+      func_info = FuncInfo(func_info.params, func_info.start_ip)
+      to_value_type = Value(Type.FUNC, func_info) # Reset captures
       self.func_manager.create_function(varname, to_value_type.value())
     if "." in varname:
       object = varname.split(".")[0]
