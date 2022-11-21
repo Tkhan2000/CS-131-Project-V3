@@ -447,6 +447,8 @@ class Interpreter(InterpreterBase):
   def _find_first_instruction(self, funcname):
     func_info = self.func_manager.get_function_info(funcname)
     if not func_info:
+      if self._get_value(funcname):
+        super().error(ErrorType.TYPE_ERROR,f"Function name {funcname} not of type func")
       super().error(ErrorType.NAME_ERROR,f"Unable to locate {funcname} function")
 
     return func_info.start_ip
