@@ -4,10 +4,12 @@ class FuncInfo:
   def __init__(self, params, start_ip, captures = []):
     self.params = params  # format is [[varname1,typename1],[varname2,typename2],...]
     self.start_ip = start_ip    # line number, zero-based
-    self.captures = captures # List of captured variable names w/ format [(name, Value), (name, Value), ...]
 
   def __str__(self):
-    return f"{self.params}||{self.start_ip}||{self.captures}"
+    return f"{self.params}::{self.start_ip}"
+
+  __repr__ = __str__  
+
 
 class FunctionManager:
   def __init__(self, tokenized_program):
@@ -43,7 +45,7 @@ class FunctionManager:
     params = [self._to_tuple(formal) for formal in args[0:-1]]
     func_info = FuncInfo(params, line_num + 1, captures)
     self.func_cache[func_name] = func_info
-    #self.capture_list[line_num] = captures
+    self.capture_list[line_num].insert(0, captures)
   
   # returns the return type for the function in question
   def get_return_type_for_enclosing_function(self, line_num):
