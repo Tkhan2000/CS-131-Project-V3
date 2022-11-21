@@ -119,7 +119,6 @@ class Interpreter(InterpreterBase):
    self._advance_to_next_statement()
 
   def _funccall(self, args):
-    #assert(args[0] != "cons") # Temporary --------------------------
     if not args:
       super().error(ErrorType.SYNTAX_ERROR,"Missing function name to call", self.ip)
     if args[0] == InterpreterBase.PRINT_DEF:
@@ -133,8 +132,8 @@ class Interpreter(InterpreterBase):
       self._advance_to_next_statement()
     else:
       self.return_stack.append(self.ip+1)
-      self._create_new_environment(args[0], args[1:])  # Create new environment, copy args into new env
       self.ip = self._find_first_instruction(args[0])
+      self._create_new_environment(args[0], args[1:])  # Create new environment, copy args into new env
       
 
   # create a new environment for a function call
@@ -142,6 +141,8 @@ class Interpreter(InterpreterBase):
     formal_params = self.func_manager.get_function_info(funcname)   
     if formal_params is None:
         super().error(ErrorType.NAME_ERROR, f"Unknown function name {funcname}", self.ip)
+    if formal_params.start_ip < 0:
+        super().error(ErrorType.NAME_ERROR, f"Undefined function {funcname}", self.ip)
     line_num = self._find_first_instruction(funcname) - 1
     captures = self.func_manager.capture_list[line_num].pop() if self.func_manager.capture_list[line_num] else []
     
@@ -360,6 +361,8 @@ class Interpreter(InterpreterBase):
     if len(args) < 2:
       super().error(ErrorType.SYNTAX_ERROR,"Invalid var definition syntax", self.ip)
     for var_name in args[1:]:
+      if "." in var_name:
+        super().error(ErrorType.SYNTAX_ERROR,f"Cannot define object variable {args[1]}", self.ip)
       if self.env_manager.create_new_symbol(var_name) != SymbolResult.OK:
         super().error(ErrorType.NAME_ERROR,f"Redefinition of variable {args[1]}", self.ip)
       # is the type a valid type?
